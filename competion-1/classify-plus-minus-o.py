@@ -5,22 +5,20 @@ from random import randint, random
 
 import math
 
-from numpy import average
-from scipy.ndimage import shift
-from skimage import img_as_bool
-from skimage.transform import rotate, rescale
-from skimage.util import pad
+from numpy import average, pad
+from skimage.transform import rotate, AffineTransform, warp, rescale
 from sklearn.metrics import confusion_matrix, precision_score, recall_score
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 
 from pandas import read_csv, Series, DataFrame
 
-plot_dim_per_page = (20, 20)
+plot_dim_per_page = (10, 10)
 
 MODELS = [
     {
@@ -30,7 +28,7 @@ MODELS = [
         'class': DecisionTreeClassifier,
         'req_ravel': True,
         'extra_args': {
-            'max_depth': 9
+            'max_depth': 16
         }
     },
     {
@@ -40,7 +38,8 @@ MODELS = [
         'class': RandomForestClassifier,
         'req_ravel': True,
         'extra_args': {
-            'max_depth': 9
+            'max_depth': 16,
+            'n_estimators': 750
         }
     },
     {
@@ -50,7 +49,7 @@ MODELS = [
         'class': KNeighborsClassifier,
         'req_ravel': True,
         'extra_args': {
-            'n_neighbors': 10
+            'n_neighbors': 5
         }
     },
     {
@@ -60,7 +59,7 @@ MODELS = [
         'class': KNeighborsClassifier,
         'req_ravel': True,
         'extra_args': {
-            'n_neighbors': 20
+            'n_neighbors': 15
         }
     },
     {
@@ -70,7 +69,7 @@ MODELS = [
         'class': KNeighborsClassifier,
         'req_ravel': True,
         'extra_args': {
-            'n_neighbors': 10,
+            'n_neighbors': 5,
             'weights': 'distance'
         }
     },
@@ -81,9 +80,16 @@ MODELS = [
         'class': KNeighborsClassifier,
         'req_ravel': True,
         'extra_args': {
-            'n_neighbors': 20,
+            'n_neighbors': 15,
             'weights': 'distance'
         }
+    },
+    {
+        'name': 'SVC',
+        'abbr': 'SVC',
+        'is_classifier': True,
+        'class': SVC,
+        'req_ravel': True,
     },
     {
         'name': 'Gaussian Naive Bayes Classifier',
@@ -99,14 +105,16 @@ def load_additional_images():
 
     yc = []
     dc = []
+    count = 0
 
     for parent, dirs, files in os.walk('data/input/additional_images'):
         for file in files:
 
-            data = read_csv(join(parent, file))
+            data = read_csv(join(parent, file), header=None)
             y_col = data[data.columns[0]]
             data_cols = data[data.columns[1:101]]
             # print(data.iterrows())
+            count += 1
             for y, data in zip(y_col.values, data_cols.values):
                 # print(row)
                 # print(y)
@@ -116,6 +124,7 @@ def load_additional_images():
                 yc.append(y)
                 dc.append(data)
 
+    print('{} additional image sets loaded'.format(count))
     # print(frames)
     return yc, dc
 
@@ -128,22 +137,35 @@ def show_plot(bitmaps):
 
     plots_per_page = plot_dim_per_page[0] * plot_dim_per_page[1]
 
+    print(len(bitmaps))
     for page in range(0, int(math.ceil(len(bitmaps) / plots_per_page))):
 
         page_plot_offset = page * plots_per_page
+        print('page {}'.format(page))
 
         fig, axes = plt.subplots(ncols=plot_dim_per_page[0], nrows=plot_dim_per_page[1], figsize=(10, 10))
         ax = axes.ravel()
 
-        for b in range(page_plot_offset, page_plot_offset + max(len(bitmaps) - page_plot_offset, page_plot_offset)):
-            print(bitmaps[b])
-            ax[b - page_plot_offset].imshow(bitmaps[b], cmap=plt.cm.gray)
-            # ax[b - page_plot_offset].set_title(bitmaps[b][1], fontsize=8)
+        for b in range(page_plot_offset, page_plot_offset + min(len(bitmaps) - page_plot_offset, plots_per_page)):
+            # print(bitmaps[b])
+            ax[b - page_plot_offset].imshow(bitmaps[b][0], cmap=plt.cm.gray)
+            ax[b - page_plot_offset].set_title(bitmaps[b][1], fontsize=8)
 
         for a in ax:
             a.axis('off')
 
         plt.show()
+
+
+def boost_image(img):
+    for r, row in enumerate(img):
+        for p, px in enumerate(row):
+            if img[r][p] > 0.1:
+                img[r][p] = 1
+            else:
+                img[r][p] = 0
+
+    return img
 
 
 def enhance_data_frame(data_cols, y_cols, factor=2):
@@ -161,7 +183,7 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
 
     y_cols = y_cols.append(DataFrame(add_y_cols, columns=list('y')), ignore_index=True)
     data_cols = data_cols.append(DataFrame(add_data_cols, columns=data_cols.columns), ignore_index=True)
-
+    # #
     orig_data_cols = copy(data_cols)
     orig_y_cols = copy(y_cols)
 
@@ -169,7 +191,7 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
 
     if 0 < factor < 1000:
 
-        for itr in range(1, factor):
+        for itr in range(0, factor):
 
             append_data = []
 
@@ -185,8 +207,12 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
                     # Rotate by multiple of 90°
                     img = rotate(img, randint(0, 3) * 90, clip=True, preserve_range=True)
 
+                    # Rotate by random angle (o's only)
+                    if y == 'o':
+                        img = rotate(img, 0 + random() * 360, clip=True, preserve_range=True)
+
                     # Scale between 0.5 and 1.5
-                    resized_img = img_as_bool(rescale(img, 0.8 + random() * 0.4, preserve_range=True))
+                    resized_img = rescale(img, 0.9 + random() * 0.2, preserve_range=True)
 
                     if resized_img.shape[0] < 10:
                         resized_img = pad(resized_img, 10 - resized_img.shape[0], mode='constant')
@@ -195,7 +221,7 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
                         edge2 = resized_img.shape[0] - ((resized_img.shape[0] - 10) - edge1)
                         resized_img = resized_img[edge1:edge2, edge1:edge2]
 
-                    img = resized_img
+                    # img = resized_img
 
                     # Flip randomly
                     flip = randint(0, 3)
@@ -203,17 +229,13 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
                         img = img[:, ::-1]
                     elif flip == 2:
                         img = img[::-1, :]
+                    #
+                    img = boost_image(warp(img, AffineTransform(shear=-.1 + random() * .2), preserve_range=True, output_shape=(10, 10)))
 
                     # Shift by 1 pixel randomly
-                    img = shift(img, [randint(-1, 1), randint(-1, 1)], cval=0)
-
-                    # Rotate by random angle (o's only)
-                    if y == 'o':
-                        img = img_as_bool(rotate(img, 0 + random() * 360, clip=True, preserve_range=True))
-
-                    # Apply Hough Transformation
-
-                    # bitmaps.append(img)
+                    # img = boost_image(shift(img, [randint(-1, 1), randint(-1, 1)], cval=0))
+                    # img = boost_image(img)
+                    bitmaps.append((img, y))
 
                 # Unravel back to 1D array and append data
                 append_data.append([int(x) for x in img.reshape(100, 1)])
@@ -221,7 +243,7 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
             y_cols = y_cols.append(DataFrame(orig_y_cols, columns=list('y')), ignore_index=True)
             data_cols = data_cols.append(DataFrame(append_data, columns=orig_data_cols.columns), ignore_index=True)
 
-            # show_plot(bitmaps)
+        # show_plot(bitmaps)
 
     return data_cols, y_cols
 
@@ -241,9 +263,9 @@ XTrain = train_data_frame[train_data_frame.columns[1:101]]
 XTest = test_data_frame[test_data_frame.columns[1:101]]
 yTarget = train_data_frame[['y']]
 
-Enh_XTrain, Enh_yTarget = enhance_data_frame(XTrain, yTarget, factor=1)
+factor = 15
+Enh_XTrain, Enh_yTarget = enhance_data_frame(XTrain, yTarget, factor=factor)
 
-load_additional_images()
 # print(Enh_XTrain[Enh_XTrain.columns[0:10]])
 
 
@@ -295,12 +317,12 @@ for model in MODELS:
     instance = model.get('class')(**model.get('extra_args', {}))
     fitted = instance.fit(Enh_XTrain, Enh_yTarget.values.ravel())
     predicted = instance.predict(XTest)
-    x_predicted = cross_val_predict(instance, Enh_XTrain, Enh_yTarget.values.ravel(), cv=20)
+    x_predicted = cross_val_predict(instance, Enh_XTrain, Enh_yTarget.values.ravel(), cv=factor * 4)
 
     print('Simple score: {}'.format(instance.score(Enh_XTrain, Enh_yTarget.values.ravel())))
     print('Xval score: {}'.format(
         average(cross_val_score(
-            instance, Enh_XTrain, Enh_yTarget.values.ravel() if model.get('req_ravel', False) else Enh_XTrain, cv=20
+            instance, Enh_XTrain, Enh_yTarget.values.ravel() if model.get('req_ravel', False) else Enh_yTarget, cv=factor * 4
         )))
     )
 
@@ -312,8 +334,15 @@ for model in MODELS:
     series.index.name = 'Id'
     DataFrame(series).to_csv('data/submissions/sub_plus-minus-sblattner_{}.csv'.format(model.get('abbr')))
 
+    # show_confusion_matrix(instance, Enh_XTrain, Enh_yTarget)
 
-for dd, d in enumerate(test_data_frame[test_data_frame.columns[1:101]].replace(1, 'O').replace(0, ' ').values[0:20]):
-    print(dd)
-    print(d.reshape(10, 10))
-#
+
+# for dd, d in enumerate(test_data_frame[test_data_frame.columns[1:101]].replace(1, 'O').replace(0, ' ').values[0:20]):
+#     print(dd)
+#     print(d.reshape(10, 10))
+
+
+# for dd, d in enumerate(zip(Enh_XTrain.values, Enh_yTarget.values)):
+#     print(dd)
+#     print(d[0].reshape(10, 10))
+#     print(d[1])

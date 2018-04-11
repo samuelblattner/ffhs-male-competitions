@@ -195,4 +195,4 @@ for model in MODELS:
 
     series = Series(predicted, name='y', dtype=int)
     series.index.name = 'Id'
-    DataFrame(series).to_csv('data/sub_sblattner_{}.csv'.format(model.get('abbr')))
+    DataFrame(series).to_csv('data/submissions/sub_sblattner_{}.csv'.format(model.get('abbr')))
