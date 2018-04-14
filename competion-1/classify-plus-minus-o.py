@@ -39,7 +39,7 @@ MODELS = [
         'req_ravel': True,
         'extra_args': {
             'max_depth': 16,
-            'n_estimators': 750
+            'n_estimators': 10
         }
     },
     {
@@ -113,19 +113,13 @@ def load_additional_images():
             data = read_csv(join(parent, file), header=None)
             y_col = data[data.columns[0]]
             data_cols = data[data.columns[1:101]]
-            # print(data.iterrows())
             count += 1
             for y, data in zip(y_col.values, data_cols.values):
-                # print(row)
-                # print(y)
                 y = y[0]
-
-                # row[0] = row[0][0]
                 yc.append(y)
                 dc.append(data)
 
     print('{} additional image sets loaded'.format(count))
-    # print(frames)
     return yc, dc
 
 
@@ -202,40 +196,38 @@ def enhance_data_frame(data_cols, y_cols, factor=2):
 
                 # bitmaps.append(img)
 
-                if y in ('x', '+', 'o'):
+                # Rotate by multiple of 90°
+                img = rotate(img, randint(0, 3) * 90, clip=True, preserve_range=True)
 
-                    # Rotate by multiple of 90°
-                    img = rotate(img, randint(0, 3) * 90, clip=True, preserve_range=True)
+                # Rotate by random angle (o's only)
+                if y == 'o':
+                    img = rotate(img, 0 + random() * 360, clip=True, preserve_range=True)
 
-                    # Rotate by random angle (o's only)
-                    if y == 'o':
-                        img = rotate(img, 0 + random() * 360, clip=True, preserve_range=True)
+                # Scale between 0.5 and 1.5
+                # resized_img = rescale(img, 0.9 + random() * 0.2, preserve_range=True)
+                #
+                # if resized_img.shape[0] < 10:
+                #     resized_img = pad(resized_img, 10 - resized_img.shape[0], mode='constant')
+                # if resized_img.shape[0] > 10:
+                #     edge1 = int((resized_img.shape[0] - 10) / 2)
+                #     edge2 = resized_img.shape[0] - ((resized_img.shape[0] - 10) - edge1)
+                #     resized_img = resized_img[edge1:edge2, edge1:edge2]
 
-                    # Scale between 0.5 and 1.5
-                    resized_img = rescale(img, 0.9 + random() * 0.2, preserve_range=True)
+                # img = resized_img
 
-                    if resized_img.shape[0] < 10:
-                        resized_img = pad(resized_img, 10 - resized_img.shape[0], mode='constant')
-                    if resized_img.shape[0] > 10:
-                        edge1 = int((resized_img.shape[0] - 10) / 2)
-                        edge2 = resized_img.shape[0] - ((resized_img.shape[0] - 10) - edge1)
-                        resized_img = resized_img[edge1:edge2, edge1:edge2]
+                # Flip randomly
+                flip = randint(0, 3)
+                if flip == 1:
+                    img = img[:, ::-1]
+                elif flip == 2:
+                    img = img[::-1, :]
+                #
+                img = boost_image(warp(img, AffineTransform(shear=-.1 + random() * .2), preserve_range=True, output_shape=(10, 10)))
 
-                    # img = resized_img
-
-                    # Flip randomly
-                    flip = randint(0, 3)
-                    if flip == 1:
-                        img = img[:, ::-1]
-                    elif flip == 2:
-                        img = img[::-1, :]
-                    #
-                    img = boost_image(warp(img, AffineTransform(shear=-.1 + random() * .2), preserve_range=True, output_shape=(10, 10)))
-
-                    # Shift by 1 pixel randomly
-                    # img = boost_image(shift(img, [randint(-1, 1), randint(-1, 1)], cval=0))
-                    # img = boost_image(img)
-                    bitmaps.append((img, y))
+                # Shift by 1 pixel randomly
+                # img = boost_image(shift(img, [randint(-1, 1), randint(-1, 1)], cval=0))
+                # img = boost_image(img)
+                bitmaps.append((img, y))
 
                 # Unravel back to 1D array and append data
                 append_data.append([int(x) for x in img.reshape(100, 1)])
@@ -266,47 +258,6 @@ yTarget = train_data_frame[['y']]
 factor = 15
 Enh_XTrain, Enh_yTarget = enhance_data_frame(XTrain, yTarget, factor=factor)
 
-# print(Enh_XTrain[Enh_XTrain.columns[0:10]])
-
-
-#
-# col = []
-#
-# print(array(
-#                 [math.radians(x) for x in range(-90, -80)] +
-#                 [math.radians(x) for x in range(-50, -40)] +
-#                 [math.radians(x) for x in range(-5, 5)] +
-#                 [math.radians(x) for x in range(40, 50)] +
-#                 [math.radians(x) for x in range(80, 90)]
-#             )
-#         )
-#
-# for inp in (XTrain, XTest):
-#
-#     data = []
-#
-#     for val in inp.values:
-#         img = val.reshape(10, 10)
-#         hspace, theta, d = hough_line(img
-#         )
-#         out = [0 for _ in range(0, len(theta) * 2)]
-#
-#         # for o, ot in enumerate(out[len(theta):]):
-#         #     out[o] = -100
-#
-#         for t, th in enumerate(theta):
-#             for h, hs in enumerate(hspace):
-#                 if hs[t] > out[t] and hs[t] > 3:
-#                     out[t] = hs[t]
-#                     out[len(theta) + t] = d[h]
-#
-#         data.append(out)
-#     col.append(data)
-#
-# XTrain_Hough = DataFrame(col[0])
-# XTest_Hough = DataFrame(col[1])
-#
-
 for model in MODELS:
 
     print('\nEvaluating {}\n{}'.format(
@@ -335,14 +286,3 @@ for model in MODELS:
     DataFrame(series).to_csv('data/submissions/sub_plus-minus-sblattner_{}.csv'.format(model.get('abbr')))
 
     # show_confusion_matrix(instance, Enh_XTrain, Enh_yTarget)
-
-
-# for dd, d in enumerate(test_data_frame[test_data_frame.columns[1:101]].replace(1, 'O').replace(0, ' ').values[0:20]):
-#     print(dd)
-#     print(d.reshape(10, 10))
-
-
-# for dd, d in enumerate(zip(Enh_XTrain.values, Enh_yTarget.values)):
-#     print(dd)
-#     print(d[0].reshape(10, 10))
-#     print(d[1])
